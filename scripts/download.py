@@ -1,3 +1,17 @@
+"""
+Before running the scipt:
+1. Change "/scr/biggest/ryanli/CultureBank/model/checkpoints" to {path/to/your/checkpoint}; the checkpoint must not be in your home directory
+
+2. make a directory on your local disk for cache (e.g., /scr/biggest/ryanli/CultureBank/.cache/)
+   and export the following env variables:
+export HF_HOME={path/to/your/cache}/huggingface/hub
+export TRANSFORMERS_CACHE={path/to/your/cache}/huggingface/hub
+export HUGGINGFACE_HUB_CACHE={path/to/your/cache}/huggingface/hub
+
+3. link the default cache directory to the cache directory on your local disk
+ln -s {path/to/your/cache}/huggingface/hub ~/.cache/huggingface
+"""
+
 import os
 import sys
 from pathlib import Path
@@ -41,7 +55,8 @@ def download_from_hub(
     else:
         download_files.append("*.bin*")
 
-    directory = Path("checkpoints") / repo_id
+    # directory = Path("checkpoints") / repo_id
+    directory = Path("/scr/biggest/ryanli/CultureBank/model/checkpoints") / repo_id
     snapshot_download(
         repo_id,
         local_dir=directory,
