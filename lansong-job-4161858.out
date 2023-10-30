@@ -1,0 +1,23 @@
+###############################
+start time: 2023-10-22 01:33:35.673254
+machine: sphinx7
+conda env: base
+###############################
+running following processes
+
+	python scripts/download.py --repo_id meta-llama/Llama-2-70b-chat-hf --access_token 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
+
+
+###############################
+command outputs: 
+
+
+/nlp/scr/lansong/miniconda3/lib/python3.11/site-packages/torch/nn/modules/transformer.py:20: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  device: torch.device = torch.device(torch._C._get_default_device()),  # torch.device('cpu'),
+Traceback (most recent call last):
+  File "/sailhome/lansong/CultureBank/lit-gpt_ours/scripts/download.py", line 11, in <module>
+    from lightning_utilities.core.imports import RequirementCache
+ModuleNotFoundError: No module named 'lightning_utilities'
+###############################
+end time: 2023-10-22 01:34:15.715499
+elapsed time: 0:00:40.042245

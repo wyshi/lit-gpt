@@ -185,7 +185,8 @@ def generate(
 
         # if <eos> token is triggered, return the output (stop generation)
         if idx_next == eos_id:
-            return idx[:input_pos]  # include the EOS token
+            if idx[:input_pos][-1].item() == prev_eos_id:
+                return idx[: input_pos + 1]  # include the EOS token
 
     return idx
 
@@ -298,6 +299,9 @@ def main(
         annotate_prompt(get_video_desc(videos_json, comment[1].split("--")[0]), comment[0])
         for comment in comments
     ]
+    
+    # generating only top 50 comments for testing
+    prompts = prompts[:50]
 
     results = []
     for prompt in tqdm(prompts):
@@ -338,7 +342,7 @@ def main(
         if fabric.device.type == "cuda":
             fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB", file=sys.stderr)
 
-    assert len(comments) == len(prompts)
+    # assert len(comments) == len(prompts)
     comments_results = list(zip(comments, results))
     with open(results_dir, "w") as fh:
         json.dump(comments_results, fh)

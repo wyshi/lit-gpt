@@ -1,5 +1,8 @@
 """
 python generate/base_chat_filter_culture_ryan.py --checkpoint_dir /scr/biggest/weiyans/CultureBank/model/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir ~/CultureBank/tiktok/comments_culturaldifference_50.json --results_dir ~/CultureBank/tiktok/results_70b_chat.json --temperature 0.1 --top_k 1
+
+python generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir /juice/scr/weiyans/CultureBank/tiktok_data/subset/predicted_cultural_relateness.json --video_dir /juice/scr/weiyans/CultureBank/tiktok_data/videos --results_dir ~/CultureBank/tiktok/results_70b_chat_500.json --temperature 0.01 --top_k 1
+
 nlprun -g 1 -m sphinx7 -c 8 -r 200G
 # download model
 nlprun -g 0 -m sphinx7 -c 4 -r 164G 'python scripts/download.py --repo_id meta-llama/Llama-2-70b-chat-hf --access_token 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'
@@ -11,7 +14,11 @@ import time
 from pathlib import Path
 from typing import Iterator, List, Literal, Optional, Tuple
 import json
+import codecs
 from tqdm import tqdm
+from glob import glob
+from json.decoder import JSONDecodeError
+from prompt_utils import annotate_prompt, annotate_chat_prompt, annotate_chat_prompt2
 
 import lightning as L
 import torch
@@ -86,6 +93,7 @@ def generate(
     temperature: float = 1.0,
     top_k: Optional[int] = None,
     eos_id: Optional[int] = None,
+    prev_eos_id: Optional[int] = None,
 ) -> torch.Tensor:
     """Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
 
@@ -138,7 +146,8 @@ def generate(
 
         # if <eos> token is triggered, return the output (stop generation)
         if idx_next == eos_id:
-            return idx[:input_pos]  # include the EOS token
+            if idx[:input_pos][-1].item() == prev_eos_id:
+                return idx[: input_pos + 1]  # include the EOS token
 
     return idx
 
@@ -168,9 +177,10 @@ def decode(fabric: L.Fabric, tokenizer: Tokenizer, token_stream: Iterator[torch.
 def main(
     *,
     comment_dir: str = None,
+    video_dir: str = None,
     results_dir: str = None,
     num_samples: int = 1,
-    max_new_tokens: int = 10,
+    max_new_tokens: int = 500,
     top_k: int = 200,
     temperature: float = 0.8,
     checkpoint_dir: Path = Path("checkpoints/stabilityai/stablelm-tuned-alpha-3b"),
@@ -225,22 +235,98 @@ def main(
 
     tokenizer = Tokenizer(checkpoint_dir)
     system_prompt, stop_tokens = prompt_config(checkpoint_dir, tokenizer)
+    EOS_TOKEN = tokenizer.encode("<EOD>")
 
-    with open(comment_dir) as fh:
-        comments_json = json.load(fh)
-    comments = [
-        (comment["text"], f"{vid}--{comment['cid']}") for vid in comments_json for comment in comments_json[vid]
-    ][:100]
+    # with open(comment_dir) as fh:
+    #     comments_json = json.load(fh)
+    # comments = [
+    #     (comment["text"], f"{vid}--{comment['cid']}") for vid in comments_json for comment in comments_json[vid]
+    # ][:100]
+
+    # prompts = [
+    #     # For these prompts, the expected answer is the natural continuation of the prompt
+    #     PROMPT_TEMPLATE.format(comment[0])
+    #     for comment in comments
+    # ]
+
+    # prompts = [system_prompt.format(prompt=prompt) for prompt in prompts]
+    
+    
+                
+    
+    # with open(comment_dir) as fh:
+    #     comments_json = json.load(fh)
+    # with open(video_dir) as fh:
+    #     videos_json = json.load(fh)
+    #     videos_json = {video["id"]: video for video in videos_json}
+    # comments = [
+    #     (comment["text"], f"{vid}--{comment['cid']}") for vid in comments_json for comment in comments_json[vid]
+    # ][:2000]
+
+    # def get_video_desc(videos_json, vid):
+    #     video = videos_json[vid]
+    #     video_desc = []
+    #     if "stickersOnItem" in video:
+    #         for itm in video["stickersOnItem"]:
+    #             if "stickerText" in itm:
+    #                 video_desc.extend(itm["stickerText"])
+    #     video_desc.append(video["desc"])
+    #     return "\n".join(video_desc)
+    
+    def get_comments(comment_dir):
+        with open(comment_dir) as fh:
+            # the predictions from predicted_cultural_relateness.json
+            comments_json = json.load(fh)
+            # comment[0]: vid--cid; comment[1]["sequence"]: text
+            comments = [
+                (comment[1]["sequence"], comment[0]) for comment in comments_json
+            ]
+        return comments
+
+    def get_videos_json(video_dir):
+        video_files = glob(video_dir + "/*.json")
+        video_files.extend(glob(video_dir + "/culture/*.json"))
+        videos_json = {}
+        for video_file in tqdm(video_files):
+            # print(video_file)
+            with open(video_file) as fh:
+                # file_json = json.load(fh)
+                try:
+                    file_json = json.load(fh)
+                    if "data" not in file_json or "videos" not in file_json["data"]:
+                        continue
+                    videos = file_json["data"]["videos"]
+                    videos_json.update({video["id"]: video for video in videos})
+                except JSONDecodeError:
+                    pass
+        # print(videos_json)
+        return videos_json
+    
+    def get_video_desc(videos_json, vid):
+        video = videos_json[vid]
+        video_desc = []
+        if "stickersOnItem" in video:
+            for itm in video["stickersOnItem"]:
+                if "stickerText" in itm:
+                    video_desc.extend(itm["stickerText"])
+        video_desc.append(video["video_description"])
+        return "\n".join(video_desc)     
+    
+    comments = get_comments(comment_dir)
+    videos_json = get_videos_json(video_dir)
 
     prompts = [
         # For these prompts, the expected answer is the natural continuation of the prompt
-        PROMPT_TEMPLATE.format(comment[0])
+        annotate_chat_prompt(get_video_desc(videos_json, int(comment[1].split("-")[0])), comment[0])
+        # annotate_chat_prompt2(get_video_desc(videos_json, int(comment[1].split("-")[0])), comment[0])
         for comment in comments
     ]
-
-    prompts = [system_prompt.format(prompt=prompt) for prompt in prompts]
+    prompts = prompts[:500]
+    
     results = []
     for prompt in tqdm(prompts):
+        prompt = prompt.encode('utf-16', 'surrogatepass').decode('utf-16')
+        # fabric.print(prompt)
         encoded = tokenizer.encode(prompt, device=fabric.device)
         prompt_length = encoded.size(0)
         max_returned_tokens = prompt_length + max_new_tokens
@@ -262,7 +348,8 @@ def main(
                 max_returned_tokens,
                 temperature=temperature,
                 top_k=top_k,
-                # eos_id=tokenizer.eos_id,
+                eos_id=EOS_TOKEN[-1],
+                prev_eos_id=EOS_TOKEN[-2],
             )
             t = time.perf_counter() - t0
 
@@ -277,7 +364,7 @@ def main(
         if fabric.device.type == "cuda":
             fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB", file=sys.stderr)
 
-    assert len(comments) == len(prompts)
+    # assert len(comments) == len(prompts)
     comments_results = list(zip(comments, results))
     with open(results_dir, "w") as fh:
         json.dump(comments_results, fh)
