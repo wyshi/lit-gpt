@@ -1,11 +1,6 @@
 """
-python generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir /juice/scr/weiyans/CultureBank/tiktok_data/annotations/cultural_relatedness/cultural_2k_for_llama.csv --video_dir /juice/scr/weiyans/CultureBank/tiktok_data/videos --results_dir ~/CultureBank/tiktok/results_70b_chat_2k.json --temperature 0.01 --top_k 1
 
-
-
-nlprun -g 1 -m sphinx8 -c 8 -r 200G -a culturebank 'python ~/CultureBank/lit-gpt_ours/generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir ~/CultureBank/tiktok/filtered_200.csv --video_dir /juice/scr/weiyans/CultureBank/tiktok_data/videos --results_dir ~/CultureBank/tiktok/results_70b_chat_200.json --temperature 0.01 --top_k 1'
-
-nlprun -g 1 -m sphinx8 -c 8 -r 200G -a culturebank 'python ~/CultureBank/lit-gpt_ours/generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir /juice/scr/weiyans/CultureBank/tiktok_data/annotations/cultural_relatedness/cultural_2k_for_llama.csv --video_dir /juice/scr/weiyans/CultureBank/tiktok_data/videos --results_dir ~/CultureBank/tiktok/results_70b_chat_2k.json --temperature 0.01 --top_k 1'
+python generate/base_chat_filter_culture_comments.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir /juice/scr/weiyans/CultureBank/tiktok_data/subset/predicted_cultural_relateness.json --results_dir ~/CultureBank/tiktok/results_70b_chat_500_comments.json --temperature 0.01 --top_k 1
 
 nlprun -g 1 -m sphinx7 -c 8 -r 200G
 # download model
@@ -18,11 +13,11 @@ import time
 from pathlib import Path
 from typing import Iterator, List, Literal, Optional, Tuple
 import json
-import pandas as pd
+import codecs
 from tqdm import tqdm
 from glob import glob
 from json.decoder import JSONDecodeError
-from prompt_utils_2 import annotate_chat_prompt
+from prompt_utils import annotate_prompt, annotate_chat_prompt_comment_only
 
 import lightning as L
 import torch
@@ -39,6 +34,53 @@ from lit_gpt.utils import (
     gptq_quantization,
     load_checkpoint,
 )
+
+incontext_example = [
+    {
+        "cultural group": "American",
+        "context": "in public",
+        "goal": None,
+        "relation": None,
+        "actor": "people",
+        "recipient": None,
+        "actor's behavior": "wear at-home clothes",
+        "recipient's behavior": None,
+        "other descriptions": None,
+        "topic": "clothing",
+    },
+    {
+        "cultural group": "non-American",
+        "context": "in public",
+        "goal": None,
+        "relation": None,
+        "actor": "people",
+        "recipient": None,
+        "actor's behavior": "dress up",
+        "recipient's behavior": None,
+        "other descriptions": None,
+        "topic": "clothing",
+    },
+]
+# PROMPT_TEMPLATE = """{}
+
+# Does this text contain any knowledge related to culture, cultural differences, personal experience, social norms?
+# True
+# False
+
+# Constraint: even if you are uncertain, you must pick either \"True\" or \"False\". Be conservative, if you are uncertain, pick \"True\". Output only \"True\" or \"False\" without extra information."""
+PROMPT_TEMPLATE = """
+You are a highly intelligent and accurate information extraction system. You take a comment as input and your task is to extract information in the passage.
+
+You need to output a list of JSON encoded values.
+
+
+Comment: {}
+
+Does this text contain any knowledge related to culture, cultural differences, personal experience, social norms?
+True
+False
+
+Constraint: even if you are uncertain, you must pick either \"True\" or \"False\". Be conservative, if you are uncertain, pick \"True\". Output only \"True\" or \"False\" without extra information."""
 
 
 @torch.inference_mode()
@@ -113,7 +155,7 @@ def decode(fabric: L.Fabric, tokenizer: Tokenizer, token_stream: Iterator[torch.
     tokens_generated = 0
     if tokenizer.backend == "huggingface":
         for token in token_stream:
-            # fabric.print(tokenizer.decode(token), end="", flush=True)
+            fabric.print(tokenizer.decode(token), end="", flush=True)
             tokens_generated += 1
     elif tokenizer.backend == "sentencepiece":
         # sentencepiece does not support decoding token-by-token because it adds spaces based on the surrounding tokens
@@ -123,7 +165,7 @@ def decode(fabric: L.Fabric, tokenizer: Tokenizer, token_stream: Iterator[torch.
         for token in token_stream:
             so_far = torch.cat((so_far, token.view(-1)))
             decoded_new = tokenizer.decode(so_far)
-            # fabric.print(decoded_new[len(decoded_so_far) :], end="", flush=True)
+            fabric.print(decoded_new[len(decoded_so_far) :], end="", flush=True)
             decoded_so_far = decoded_new
             tokens_generated += 1
     else:
@@ -194,56 +236,15 @@ def main(
     system_prompt, stop_tokens = prompt_config(checkpoint_dir, tokenizer)
     EOS_TOKEN = tokenizer.encode("<EOD>")
 
-    # with open(comment_dir) as fh:
-    #     comments_json = json.load(fh)
-    # comments = [
-    #     (comment["text"], f"{vid}--{comment['cid']}") for vid in comments_json for comment in comments_json[vid]
-    # ][:100]
-
-    # prompts = [
-    #     # For these prompts, the expected answer is the natural continuation of the prompt
-    #     PROMPT_TEMPLATE.format(comment[0])
-    #     for comment in comments
-    # ]
-
-    # prompts = [system_prompt.format(prompt=prompt) for prompt in prompts]
-    
-    
-                
-    
-    # with open(comment_dir) as fh:
-    #     comments_json = json.load(fh)
-    # with open(video_dir) as fh:
-    #     videos_json = json.load(fh)
-    #     videos_json = {video["id"]: video for video in videos_json}
-    # comments = [
-    #     (comment["text"], f"{vid}--{comment['cid']}") for vid in comments_json for comment in comments_json[vid]
-    # ][:2000]
-
-    # def get_video_desc(videos_json, vid):
-    #     video = videos_json[vid]
-    #     video_desc = []
-    #     if "stickersOnItem" in video:
-    #         for itm in video["stickersOnItem"]:
-    #             if "stickerText" in itm:
-    #                 video_desc.extend(itm["stickerText"])
-    #     video_desc.append(video["desc"])
-    #     return "\n".join(video_desc)
     
     def get_comments(comment_dir):
-        # with open(comment_dir) as fh:
-        # samples from cultural_2k_for_llama.csv
-        df = pd.read_csv(comment_dir)
-        comments = [
-            (df.iloc[idx]["ids"], df.iloc[idx]["text"])  for idx, row in df.iterrows()
-        ]
-        return comments
-    
-    def get_video_comments(comment_dir):
-        df = pd.read_csv(comment_dir)
-        comments = [
-            (df.iloc[idx]["vid"], str(df.iloc[idx]["video_desc"]).split("#")[0].rstrip(), df.iloc[idx]["comment"])  for idx, row in df.iterrows()
-        ]
+        with open(comment_dir) as fh:
+            # the predictions from predicted_cultural_relateness.json
+            comments_json = json.load(fh)
+            # comment[0]: vid--cid; comment[1]["sequence"]: text
+            comments = [
+                (comment[1]["sequence"], comment[0]) for comment in comments_json
+            ]
         return comments
 
     def get_videos_json(video_dir):
@@ -272,27 +273,18 @@ def main(
             for itm in video["stickersOnItem"]:
                 if "stickerText" in itm:
                     video_desc.extend(itm["stickerText"])
-        # removes hashtags from video
-        video_desc.append(video["video_description"].split("#")[0].rstrip())
+        video_desc.append(video["video_description"])
         return "\n".join(video_desc)     
     
-    # comments = get_comments(comment_dir)
+    comments = get_comments(comment_dir)
     # videos_json = get_videos_json(video_dir)
-    
-    comments = get_video_comments(comment_dir)
 
     prompts = [
         # For these prompts, the expected answer is the natural continuation of the prompt
-        # annotate_chat_prompt(get_video_desc(videos_json, int(comment[0].split("-")[0])), comment[1])
-        # annotate_chat_prompt2(get_video_desc(videos_json, int(comment[1].split("-")[0])), comment[0])
-        
-        annotate_chat_prompt(comment[1], comment[2])
+        annotate_chat_prompt_comment_only(comment[0])
         for comment in comments
     ]
-    
-    # prompts = prompts[:5]
-    
-    fabric.print(f"extracting cultural knowledge from {len(prompts)} samples...")
+    prompts = prompts[:500]
     
     results = []
     for prompt in tqdm(prompts):
@@ -326,14 +318,14 @@ def main(
 
             result = tokenizer.decode(y[prompt_length:])
             results.append(result)
-            # fabric.print(result)
+            fabric.print(result)
             tokens_generated = y.size(0) - prompt_length
-            # fabric.print(
-            #     f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_generated / t:.02f} tokens/sec",
-            #     file=sys.stderr,
-            # )
-        # if fabric.device.type == "cuda":
-            # fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB", file=sys.stderr)
+            fabric.print(
+                f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_generated / t:.02f} tokens/sec",
+                file=sys.stderr,
+            )
+        if fabric.device.type == "cuda":
+            fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB", file=sys.stderr)
 
     # assert len(comments) == len(prompts)
     comments_results = list(zip(comments, results))
