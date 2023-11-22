@@ -209,3 +209,6 @@ def annotate_chat_prompt(video_desc, comment):
         json.dumps(chat_example_format, indent=4), json.dumps(chat_ex1_answer, indent=4), json.dumps(chat_ex3_answer, indent=4), json.dumps(chat_ex4_answer, indent=4),\
         json.dumps(chat_ex6_answer, indent=4), json.dumps(chat_ex7_answer, indent=4), video_desc, comment
     )
+
+
+"""Remember to look beyond the literal meaning and uncover higher-level cultural insights when possible."""

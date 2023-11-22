@@ -35,10 +35,10 @@ def get_video_desc(videos_json, vid):
         for itm in video["stickersOnItem"]:
             if "stickerText" in itm:
                 video_desc.extend(itm["stickerText"])
-    video_desc.append(video["video_description"])
+    video_desc.append(video["video_description"].split("#")[0].rstrip())
     return "\n".join(video_desc)   
 
-with open("/sailhome/lansong/CultureBank/tiktok/results_70b_chat_200.json") as fh:
+with open("/sailhome/lansong/CultureBank/tiktok/results_70b_uniform_200_1.json") as fh:
     results = json.load(fh)
 
 keys = [
@@ -106,7 +106,8 @@ for result in results:
         continue
 
 print(len(results), len(df_results))
+print(len(pd.DataFrame(df_results, columns=["vid", "video_desc", "comment"] + keys).drop_duplicates()))
 
-pd.DataFrame(df_results, columns=["vid", "video_desc", "comment"] + keys).to_csv(
-    "/sailhome/lansong/CultureBank/tiktok/results_70b_chat_200.csv", index=None
+pd.DataFrame(df_results, columns=["vid", "video_desc", "comment"] + keys).drop_duplicates().to_csv(
+    "/sailhome/lansong/CultureBank/tiktok/results_70b_uniform_200_1.csv", index=None
 )

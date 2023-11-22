@@ -5,9 +5,9 @@ python generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/
 
 nlprun -g 1 -m sphinx8 -c 8 -r 200G -a culturebank 'python ~/CultureBank/lit-gpt_ours/generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir ~/CultureBank/tiktok/filtered_200.csv --video_dir /juice/scr/weiyans/CultureBank/tiktok_data/videos --results_dir ~/CultureBank/tiktok/results_70b_chat_200.json --temperature 0.01 --top_k 1'
 
-nlprun -g 1 -m sphinx8 -c 8 -r 200G -a culturebank 'python ~/CultureBank/lit-gpt_ours/generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir /juice/scr/weiyans/CultureBank/tiktok_data/annotations/cultural_relatedness/cultural_2k_for_llama.csv --video_dir /juice/scr/weiyans/CultureBank/tiktok_data/videos --results_dir ~/CultureBank/tiktok/results_70b_chat_2k.json --temperature 0.01 --top_k 1'
+nlprun -g 1 -m jagupard38 -c 8 -r 80G -a culturebank 'python ~/CultureBank/lit-gpt_ours/generate/base_chat_filter_culture_ryan.py --checkpoint_dir ~/CultureBank/lit-gpt_ours/checkpoints/meta-llama/Llama-2-70b-chat-hf/ --precision bf16-true --quantize bnb.nf4-dq --comment_dir /sphinx/u/culturebank/tiktok_data/combined_comments/8_partitions/cultural_relevance/partitions/part7/part7_batch1.csv --video_dir /juice/scr/weiyans/CultureBank/tiktok_data/videos --results_dir /sphinx/u/culturebank/tiktok_results/partitions/part7/batch1.json --temperature 0.01 --top_k 1'
 
-nlprun -g 1 -m sphinx7 -c 8 -r 200G
+nlprun -g 1 -m jagupard39 -c 8 -r 200G
 # download model
 nlprun -g 0 -m sphinx7 -c 4 -r 164G 'python scripts/download.py --repo_id meta-llama/Llama-2-70b-chat-hf --access_token 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'
 """
@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 from typing import Iterator, List, Literal, Optional, Tuple
 import json
+import random
+import traceback
 import pandas as pd
 from tqdm import tqdm
 from glob import glob
@@ -242,7 +244,7 @@ def main(
     def get_video_comments(comment_dir):
         df = pd.read_csv(comment_dir)
         comments = [
-            (df.iloc[idx]["vid"], str(df.iloc[idx]["video_desc"]).split("#")[0].rstrip(), df.iloc[idx]["comment"])  for idx, row in df.iterrows()
+            (df.iloc[idx]["vid"], str(df.iloc[idx]["video_desc"]).split("#")[0].rstrip(), df.iloc[idx]["comment_text"])  for idx, row in df.iterrows()
         ]
         return comments
 
@@ -280,11 +282,19 @@ def main(
     # videos_json = get_videos_json(video_dir)
     
     comments = get_video_comments(comment_dir)
+    
+    
+    # uniformly sample 200 examples for llama to inference
+    # random.shuffle(comments)
+    # comments = comments[:200]
+    
+    # write selected samples to disk
+    # df = pd.DataFrame(data=comments, columns=['vid', 'video_desc', 'comment'])
+    # df.to_csv("~/CultureBank/tiktok/uniform_200.csv")
 
     prompts = [
         # For these prompts, the expected answer is the natural continuation of the prompt
         # annotate_chat_prompt(get_video_desc(videos_json, int(comment[0].split("-")[0])), comment[1])
-        # annotate_chat_prompt2(get_video_desc(videos_json, int(comment[1].split("-")[0])), comment[0])
         
         annotate_chat_prompt(comment[1], comment[2])
         for comment in comments
@@ -296,44 +306,47 @@ def main(
     
     results = []
     for prompt in tqdm(prompts):
-        prompt = prompt.encode('utf-16', 'surrogatepass').decode('utf-16')
-        # fabric.print(prompt)
-        encoded = tokenizer.encode(prompt, device=fabric.device)
-        prompt_length = encoded.size(0)
-        max_returned_tokens = prompt_length + max_new_tokens
+        try:
+            prompt = prompt.encode('utf-16', 'surrogatepass').decode('utf-16')
+            # fabric.print(prompt)
+            encoded = tokenizer.encode(prompt, device=fabric.device)
+            prompt_length = encoded.size(0)
+            max_returned_tokens = prompt_length + max_new_tokens
 
-        with fabric.init_tensor():
-            # set the max_seq_length to limit the memory usage to what we need
-            model.max_seq_length = max_returned_tokens
-
-        L.seed_everything(1234)
-        for i in range(num_samples):
             with fabric.init_tensor():
-                # enable the kv cache
-                model.set_kv_cache(batch_size=1)
+                # set the max_seq_length to limit the memory usage to what we need
+                model.max_seq_length = max_returned_tokens
 
-            t0 = time.perf_counter()
-            y = generate(
-                model,
-                encoded,
-                max_returned_tokens,
-                temperature=temperature,
-                top_k=top_k,
-                eos_id=EOS_TOKEN[-1],
-                prev_eos_id=EOS_TOKEN[-2],
-            )
-            t = time.perf_counter() - t0
+            L.seed_everything(1234)
+            for i in range(num_samples):
+                with fabric.init_tensor():
+                    # enable the kv cache
+                    model.set_kv_cache(batch_size=1)
 
-            result = tokenizer.decode(y[prompt_length:])
-            results.append(result)
-            # fabric.print(result)
-            tokens_generated = y.size(0) - prompt_length
-            # fabric.print(
-            #     f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_generated / t:.02f} tokens/sec",
-            #     file=sys.stderr,
-            # )
-        # if fabric.device.type == "cuda":
-            # fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB", file=sys.stderr)
+                t0 = time.perf_counter()
+                y = generate(
+                    model,
+                    encoded,
+                    max_returned_tokens,
+                    temperature=temperature,
+                    top_k=top_k,
+                    eos_id=EOS_TOKEN[-1],
+                    prev_eos_id=EOS_TOKEN[-2],
+                )
+                t = time.perf_counter() - t0
+
+                result = tokenizer.decode(y[prompt_length:])
+                results.append(result)
+                # fabric.print(result)
+                tokens_generated = y.size(0) - prompt_length
+                # fabric.print(
+                #     f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_generated / t:.02f} tokens/sec",
+                #     file=sys.stderr,
+                # )
+            # if fabric.device.type == "cuda":
+                # fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB", file=sys.stderr)
+        except Exception as e:
+            fabric.print(f"exception occured with input {prompt}")
 
     # assert len(comments) == len(prompts)
     comments_results = list(zip(comments, results))

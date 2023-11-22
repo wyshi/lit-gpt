@@ -56,7 +56,7 @@ def download_from_hub(
         download_files.append("*.bin*")
 
     # directory = Path("checkpoints") / repo_id
-    directory = Path("/scr/biggest/ryanli/CultureBank/model/checkpoints") / repo_id
+    directory = Path("/sphinx/u/culturebank/models/checkpoints") / repo_id
     snapshot_download(
         repo_id,
         local_dir=directory,
