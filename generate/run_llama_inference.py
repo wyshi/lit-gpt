@@ -1,5 +1,5 @@
 """
-python generate/run_llama_inference.py --partition_numbers 6 7 --batch_numbers 1 --machine sphinx8
+python generate/run_llama_inference.py --partition_numbers 6 7 --batch_numbers 4 --machine jagupard38
 """
 
 
